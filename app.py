@@ -40,8 +40,16 @@ class OllamaServer:
             return {}
         return {"Authorization": f"Bearer {self.bearer_token}"}
 
-TOKEN="ef45e6f7357cafef8a5b579d2e7bfe4ac1b341967252f37bded93ecb2ef65a71"
-OLLAMA_ROUTER_BEARER_TOKEN="698229e43190406cf624c1a6e82e844b74e1629860661c46c232080522b5b8ed"
+
+def require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Variabile d'ambiente {name} mancante (vedi .env.example)")
+    return value
+
+
+# Token usato dal wrapper per autenticarsi verso i server Ollama.
+TOKEN = require_env("OLLAMA_UPSTREAM_BEARER_TOKEN")
 
 # Il campo `os` è necessario per applicare la precedenza Linux > macOS.
 # Sostituisci indirizzi e token con quelli reali.
@@ -103,12 +111,7 @@ METADATA_TIMEOUT = 10.0
 GENERATION_TIMEOUT = httpx.Timeout(connect=5.0, read=None, write=60.0, pool=5.0)
 
 # Token che i client, incluso Open WebUI, devono usare per chiamare il wrapper.
-# In produzione è preferibile impostarlo tramite variabile d'ambiente:
-#   export OLLAMA_ROUTER_BEARER_TOKEN='un-token-lungo-e-casuale'
-WRAPPER_BEARER_TOKEN = os.getenv(
-    "OLLAMA_ROUTER_BEARER_TOKEN",
-    OLLAMA_ROUTER_BEARER_TOKEN,
-)
+WRAPPER_BEARER_TOKEN = require_env("OLLAMA_ROUTER_BEARER_TOKEN")
 
 
 @dataclass(slots=True)
