@@ -1,0 +1,9 @@
+services:
+  ollama-wrapper:
+    build: .
+    image: ollama-wrapper:latest
+    container_name: ollama-wrapper
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    env_file: .env
