@@ -1,38 +1,54 @@
 # Ollama RAM-aware router
 
-## Installazione
+## Configurazione
+
+Modificare `SERVERS` in `app.py` con indirizzi e sistemi operativi dei backend Ollama.
+
+I token non sono nel codice: vengono letti da variabili d'ambiente, normalmente tramite un file `.env` (escluso da git). Partire dal modello:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cp .env.example .env
+chmod 600 .env
 ```
 
-Modificare `SERVERS` in `app.py` con indirizzi, sistemi operativi e token dei backend Ollama.
+e compilare le due variabili:
 
-## Token del wrapper
+- `OLLAMA_UPSTREAM_BEARER_TOKEN`: token usato dal wrapper per autenticarsi verso i backend Ollama (assegnato di default a tutti i server in `SERVERS`).
+- `OLLAMA_ROUTER_BEARER_TOKEN`: token che i client (es. Open WebUI) devono presentare per chiamare il wrapper. Deve essere distinto da quello dei backend.
 
-Tutte le route del wrapper richiedono un Bearer token distinto dai token usati verso i singoli backend.
-
-Impostarlo prima dell'avvio:
-
-```bash
-export OLLAMA_ROUTER_BEARER_TOKEN='INSERISCI_UN_TOKEN_LUNGO_E_CASUALE'
-```
-
-Per generarne uno:
+Per generare un token:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Avviare quindi il servizio:
+Se una delle due variabili manca, il servizio non si avvia.
+
+## Avvio con Docker (consigliato)
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 11434
+docker compose up -d --build
 ```
 
-Se la variabile non viene impostata, viene usato il valore segnaposto presente in `app.py`; deve essere cambiato prima di esporre il servizio.
+Il container si chiama `ollama-wrapper`, espone la porta `11434` e legge i token da `.env`. Grazie a `restart: unless-stopped` riparte automaticamente al riavvio della macchina (purché il servizio `docker` sia abilitato: `sudo systemctl enable docker`).
+
+Comandi utili:
+
+```bash
+docker compose logs -f          # log
+docker compose up -d --build    # dopo una modifica ad app.py
+docker compose up -d            # dopo una modifica a .env
+docker compose down             # arresto
+```
+
+## Avvio manuale
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 11434 --env-file .env
+```
 
 ## Configurazione di Open WebUI
 
@@ -42,7 +58,7 @@ Configurare una sola connessione Ollama, puntata al wrapper, e impostare lo stes
 http://IP-DEL-WRAPPER:11434
 ```
 
-Il wrapper verifica il token ricevuto da Open WebUI e non lo inoltra ai backend. Per ogni backend usa invece il rispettivo `bearer_token` configurato in `SERVERS`.
+Il wrapper verifica il token ricevuto da Open WebUI e non lo inoltra ai backend. Per ogni backend usa invece il rispettivo `bearer_token` configurato in `SERVERS` (di default `OLLAMA_UPSTREAM_BEARER_TOKEN`).
 
 ## Routing
 
@@ -56,7 +72,8 @@ Il wrapper verifica il token ricevuto da Open WebUI e non lo inoltra ai backend.
 ## Verifica
 
 ```bash
-TOKEN='INSERISCI_UN_TOKEN_LUNGO_E_CASUALE'
+# Il valore di OLLAMA_ROUTER_BEARER_TOKEN in .env
+TOKEN='INSERISCI_IL_TOKEN_DEL_WRAPPER'
 
 curl http://127.0.0.1:11434/api/ps \
   -H "Authorization: Bearer $TOKEN"
