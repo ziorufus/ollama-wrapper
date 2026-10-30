@@ -1,47 +1,55 @@
 # Ollama RAM-aware router
 
-## Configurazione
+A small FastAPI service that looks like a regular Ollama server to its clients, but spreads requests across a group of real Ollama servers.
 
-Modificare `SERVERS` in `app.py` con indirizzi e sistemi operativi dei backend Ollama.
+The idea is to use only models that are **already loaded in memory** on some machine, so that no time is lost loading them: on every request the wrapper queries `/api/ps` on all backends, finds the ones that have the requested model in RAM and forwards the request there, preferring Linux machines over Macs. Streaming responses are passed through to the client as they arrive.
 
-I token non sono nel codice: vengono letti da variabili d'ambiente, normalmente tramite un file `.env` (escluso da git). Partire dal modello:
+This way, clients such as Open WebUI can be configured with **a single connection** and see a unified list of the models available across the whole group of servers. The wrapper is protected by its own Bearer token, separate from the ones used towards the backends.
+
+Exposed endpoints: `/api/chat`, `/api/generate`, `/api/tags`, `/api/ps`, `/api/version` and `/health` (reachability status of each backend). Details on how a server is chosen are in the [Routing](#routing) section.
+
+## Configuration
+
+Edit `SERVERS` in `app.py` with the addresses and operating systems of the Ollama backends.
+
+Tokens are not stored in the code: they are read from environment variables, usually through a `.env` file (excluded from git). Start from the template:
 
 ```bash
 cp .env.example .env
 chmod 600 .env
 ```
 
-e compilare le due variabili:
+and fill in the two variables:
 
-- `OLLAMA_UPSTREAM_BEARER_TOKEN`: token usato dal wrapper per autenticarsi verso i backend Ollama (assegnato di default a tutti i server in `SERVERS`).
-- `OLLAMA_ROUTER_BEARER_TOKEN`: token che i client (es. Open WebUI) devono presentare per chiamare il wrapper. Deve essere distinto da quello dei backend.
+- `OLLAMA_UPSTREAM_BEARER_TOKEN`: token the wrapper uses to authenticate with the Ollama backends (assigned by default to every server in `SERVERS`).
+- `OLLAMA_ROUTER_BEARER_TOKEN`: token clients (e.g. Open WebUI) must present to call the wrapper. It must be different from the backend token.
 
-Per generare un token:
+To generate a token:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Se una delle due variabili manca, il servizio non si avvia.
+If either variable is missing, the service will not start.
 
-## Avvio con Docker (consigliato)
+## Running with Docker (recommended)
 
 ```bash
 docker compose up -d --build
 ```
 
-Il container si chiama `ollama-wrapper`, espone la porta `11434` e legge i token da `.env`. Grazie a `restart: unless-stopped` riparte automaticamente al riavvio della macchina (purché il servizio `docker` sia abilitato: `sudo systemctl enable docker`).
+The container is named `ollama-wrapper`, exposes port `11434` and reads the tokens from `.env`. Thanks to `restart: unless-stopped` it comes back up automatically when the machine reboots (as long as the `docker` service is enabled: `sudo systemctl enable docker`).
 
-Comandi utili:
+Useful commands:
 
 ```bash
-docker compose logs -f          # log
-docker compose up -d --build    # dopo una modifica ad app.py
-docker compose up -d            # dopo una modifica a .env
-docker compose down             # arresto
+docker compose logs -f          # logs
+docker compose up -d --build    # after changing app.py
+docker compose up -d            # after changing .env
+docker compose down             # stop
 ```
 
-## Avvio manuale
+## Running manually
 
 ```bash
 python3 -m venv .venv
@@ -50,30 +58,30 @@ pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 11434 --env-file .env
 ```
 
-## Configurazione di Open WebUI
+## Open WebUI configuration
 
-Configurare una sola connessione Ollama, puntata al wrapper, e impostare lo stesso token come Bearer/API key:
+Configure a single Ollama connection pointing to the wrapper, and set the same token as the Bearer/API key:
 
 ```text
-http://IP-DEL-WRAPPER:11434
+http://WRAPPER-IP:11434
 ```
 
-Il wrapper verifica il token ricevuto da Open WebUI e non lo inoltra ai backend. Per ogni backend usa invece il rispettivo `bearer_token` configurato in `SERVERS` (di default `OLLAMA_UPSTREAM_BEARER_TOKEN`).
+The wrapper checks the token received from Open WebUI and does not forward it to the backends. For each backend it uses the corresponding `bearer_token` configured in `SERVERS` instead (by default `OLLAMA_UPSTREAM_BEARER_TOKEN`).
 
 ## Routing
 
-- Sono accettati solo modelli restituiti da `/api/ps` di almeno un backend.
-- Se il modello è caricato su uno o più Linux, viene scelto casualmente un Linux.
-- Altrimenti viene scelto casualmente uno dei macOS che lo hanno caricato.
-- `/api/tags` e `/api/ps` espongono solo modelli caricati, deduplicati per nome.
-- `/api/version` viene inoltrato al primo server configurato.
-- Tutte le route, compresa `/health`, richiedono autenticazione Bearer.
+- Only models returned by `/api/ps` on at least one backend are accepted.
+- If the model is loaded on one or more Linux servers, one of them is chosen at random.
+- Otherwise, one of the macOS servers that have it loaded is chosen at random.
+- `/api/tags` and `/api/ps` only expose loaded models, deduplicated by name.
+- `/api/version` is forwarded to the first configured server.
+- All routes, including `/health`, require Bearer authentication.
 
-## Verifica
+## Testing
 
 ```bash
-# Il valore di OLLAMA_ROUTER_BEARER_TOKEN in .env
-TOKEN='INSERISCI_IL_TOKEN_DEL_WRAPPER'
+# The value of OLLAMA_ROUTER_BEARER_TOKEN in .env
+TOKEN='INSERT_THE_WRAPPER_TOKEN'
 
 curl http://127.0.0.1:11434/api/ps \
   -H "Authorization: Bearer $TOKEN"
@@ -87,7 +95,7 @@ curl http://127.0.0.1:11434/api/version \
 curl http://127.0.0.1:11434/api/generate \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"qwen3:8b","prompt":"Ciao","stream":true}'
+  -d '{"model":"qwen3:8b","prompt":"Hello","stream":true}'
 ```
 
-Senza token, oppure con token errato, il wrapper risponde con `401 Unauthorized` e l'header `WWW-Authenticate: Bearer`.
+Without a token, or with a wrong one, the wrapper responds with `401 Unauthorized` and the `WWW-Authenticate: Bearer` header.
